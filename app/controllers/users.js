@@ -1,10 +1,9 @@
 const User = require("../models/User");
-const { all } = require("../routes/users");
 
 // Exercice 1 : GET - Récupérer tous les utilisateurs (getAll)
 exports.getAllUsers = (req, res) => {
   try {
-    User.findAll().then((users) => res.status(200).json(users));
+    User.find().then((users) => res.status(200).json(users));
   } catch (error) {
     console.error(
       "Erreur lors de la récupération de la liste des utilisateurs :",
@@ -21,13 +20,12 @@ exports.getAllUsersPagination = async (req, res) => {
     const limit = parseInt(req.query.limit) || 5;
     const offset = (page - 1) * limit;
 
-    const userList = await User.findAndCountAll({
-      limit: limit,
-      offset: offset,
-    });
+    const userList = await User.find().skip(offset).limit(limit);
+    const total = await User.countDocuments();
+
     res.status(200).json({
-      total: userList.count,
-      users: userList.rows,
+      total: total,
+      users: userList,
     });
   } catch (error) {
     console.error(
@@ -41,8 +39,8 @@ exports.getAllUsersPagination = async (req, res) => {
 // Exercice 2 : GET - Récupérer un utilisateur par son ID (getById)
 exports.getUserById = async (req, res) => {
   try {
-    const userId = parseInt(req.params.id);
-    const foundUser = await User.findByPk(userId);
+    const userId = req.params.id;
+    const foundUser = await User.findById(userId);
 
     if (!foundUser) {
       res.status(404).json({ Erreur: "Utilisateur introuvable" });
@@ -58,10 +56,9 @@ exports.getUserById = async (req, res) => {
 // Exercice 3 : GET - Rechercher un utilisateur par un champ
 exports.searchUser = (req, res) => {
   try {
-    const name = req.query.name.toLowerCase();
-    User.findAll({ where: { name: name } }).then((users) =>
-      res.status(200).json(users)
-    );
+    const name = req.query.name;
+
+    User.find({ name: name }).then((users) => res.status(200).json(users));
   } catch (error) {
     console.error("Erreur lors de la recherche d'utilisateur :", error);
     res.status(500).json({ error });
@@ -82,7 +79,7 @@ exports.addUser = async (req, res) => {
       res.status(400).json({ message: "Données invalides" });
     }
 
-    await User.findOne({ where: { email } }).then((isUserExist) => {
+    await User.findOne({ email: email }).then((isUserExist) => {
       if (isUserExist)
         return res.status(400).json({ message: "l'email existe déjà." });
     });
@@ -118,18 +115,16 @@ exports.editUser = async (req, res) => {
         return res.status(400).json({ message: "l'email existe déjà." });
     });
 
-    await User.update(req.body, { where: { id: userId } }).then(
-      (userUpdated) => {
-        if (userUpdated[0] == 1) {
-          res.status(201).json({
-            message: "Utilisateur modifié avec succès",
-            user: userUpdated,
-          });
-        } else {
-          return res.status(403).send("Id Inconnu");
-        }
+    await User.updateOne({ _id: userId }, req.body).then((userUpdated) => {
+      if (userUpdated.modifiedCount == 1) {
+        res.status(201).json({
+          message: "Utilisateur modifié avec succès",
+          user: userUpdated,
+        });
+      } else {
+        return res.status(403).json({ message: "Id Inconnu" });
       }
-    );
+    });
   } catch (error) {
     console.error("Erreur lors de la mise à jour de l'utilisateur :", error);
     res.status(500).json({ error });
@@ -140,13 +135,13 @@ exports.editUser = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   try {
     const userId = req.params.id;
-    const foundUser = await User.findByPk(userId);
+    const foundUser = await User.findById(userId);
 
     if (!foundUser) {
       res.status(404).json({ Erreur: "Utilisateur introuvable" });
     }
 
-    await User.destroy({ where: { id: userId } });
+    await User.deleteOne({ _id: userId });
     res.status(200).json({ message: "Utilisateur supprimé avec succès" });
   } catch (error) {
     console.error("Erreur lors de la suppression de l'utilisateur :", error);
@@ -157,7 +152,7 @@ exports.deleteUser = async (req, res) => {
 // GET - Obtenir la moyenne d'âge des utilisateurs
 exports.getAverageAge = async (req, res) => {
   try {
-    const allUser = await User.findAll();
+    const allUser = await User.find();
 
     if (allUser.length === 0) {
       res.status(404).json({ message: "Aucun utilisateur trouvé" });
@@ -177,7 +172,7 @@ exports.getAverageAge = async (req, res) => {
 exports.addUserByBulk = async (req, res) => {
   const userList = req.body;
 
-  User.bulkCreate(userList)
+  User.insertMany(userList)
     .then((newUsers) => {
       res.status(201).json({
         message: "Utilisateurs ajoutés avec succès",
@@ -186,22 +181,6 @@ exports.addUserByBulk = async (req, res) => {
     })
     .catch((error) => {
       console.error("Erreur lors de la création des utilisateurs :", error);
-
-      if (error.name === "SequelizeValidationError") {
-        res.status(400).json({
-          error: "Validation des données échouée",
-          details: error.errors,
-        });
-      } else if (error.name === "SequelizeUniqueConstraintError") {
-        res.status(400).json({
-          error: "Un ou plusieurs utilisateurs ne peuvent avoir le même mail",
-          details: error.errors,
-        });
-      } else {
-        res.status(500).json({
-          error: "Erreur serveur",
-          details: error.message,
-        });
-      }
+      res.status(500).json({ error });
     });
 };
